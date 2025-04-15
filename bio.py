@@ -38,33 +38,6 @@ async def has_permissions(client, chat_id, user_id, permissions):
             return False
     return True
 
-async def is_group_link(client, chat_id, url):
-    """Check if the URL points to the same group by comparing chat IDs."""
-    try:
-        if 't.me' not in url.lower():
-            return False
-
-        # Normalize URL
-        url = url.lower().rstrip('/')
-        if url.startswith('http://'):
-            url = url.replace('http://', 'https://')
-
-        # Try to resolve the URL to a chat
-        try:
-            chat_info = await client.get_chat(url)
-            resolved_chat_id = chat_info.id
-            return resolved_chat_id == chat_id
-        except errors.BadRequest as e:
-            # Handle cases where the bot can't access the chat (e.g., not a member)
-            print(f"Error resolving chat for URL {url}: {e}")
-            return False
-        except Exception as e:
-            print(f"Unexpected error resolving chat for URL {url}: {e}")
-            return False
-    except Exception as e:
-        print(f"Error checking group link: {e}")
-        return False
-
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     user_name = message.from_user.first_name
@@ -182,16 +155,6 @@ async def callback_handler(client, callback_query):
         except errors.ChatAdminRequired:
             await callback_query.message.edit("I don't have permission to unban users.")
         await callback_query.answer()
-    elif data.startswith("undelete_"):
-        target_user_id = int(data.split("_")[1])
-        target_user = await client.get_chat(target_user_id)
-        target_user_name = f"{target_user.first_name} {target_user.last_name}" if target_user.last_name else target_user.first_name
-        try:
-            await client.restrict_chat_member(chat_id, target_user_id, ChatPermissions(can_send_messages=True))
-            await callback_query.message.edit(f"{target_user_name} [<code>{target_user_id}</code>] has been allowed to send messages again", parse_mode=enums.ParseMode.HTML)
-        except errors.ChatAdminRequired:
-            await callback_query.message.edit("I don't have permission to restore message sending rights.")
-        await callback_query.answer()
 
 @app.on_message(filters.group)
 async def check_bio(client, message):
@@ -207,20 +170,6 @@ async def check_bio(client, message):
         user_name = f"{user_full.first_name} {user_full.last_name} [<code>{user_id}</code>]" if user_full.last_name else f"{user_full.first_name} [<code>{user_id}</code>]"
 
     if bio and re.search(url_pattern, bio):
-        # Extract all URLs from the bio
-        urls = [''.join(url_tuple) for url_tuple in re.findall(url_pattern, bio)]
-        is_group_url = False
-        for url in urls:
-            if await is_group_link(client, chat_id, url):
-                is_group_url = True
-                break
-
-        if is_group_url:
-            # If the link is for the current group, reset warnings and skip punishment
-            if user_id in warnings:
-                del warnings[user_id]
-            return
-
         try:
             await message.delete()
         except errors.MessageDeleteForbidden:
@@ -244,9 +193,7 @@ async def check_bio(client, message):
                         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unban ✅", callback_data=f"unban_{user_id}")]])
                         await sent_msg.edit(f"{user_name} has been 🔨 banned for [ Link In Bio ].", reply_markup=keyboard)
                     elif action[2] == "delete":
-                        await client.restrict_chat_member(chat_id, user_id, ChatPermissions())
-                        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Restore Messages ✅", callback_data=f"undelete_{user_id}")]])
-                        await sent_msg.edit(f"{user_name}'s messages will be deleted and they cannot send new messages until they remove the link from their bio.", reply_markup=keyboard)
+                        await sent_msg.edit(f"{user_name}'s messages are being deleted due to a link in their bio.", parse_mode=enums.ParseMode.HTML)
                 except errors.ChatAdminRequired:
                     await sent_msg.edit(f"I don't have permission to {action[2]} users.")
         elif action[2] == "mute":
@@ -264,12 +211,7 @@ async def check_bio(client, message):
             except errors.ChatAdminRequired:
                 await message.reply_text("I don't have permission to ban users.")
         elif action[2] == "delete":
-            try:
-                await client.restrict_chat_member(chat_id, user_id, ChatPermissions())
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Restore Messages", callback_data=f"undelete_{user_id}")]])
-                await message.reply_text(f"{user_name}'s messages will be deleted and they cannot send new messages until they remove the link from their bio.", reply_markup=keyboard)
-            except errors.ChatAdminRequired:
-                await message.reply_text("I don't have permission to restrict message sending.")
+            await message.reply_text(f"{user_name}'s messages are being deleted due to a link in their bio.", parse_mode=enums.ParseMode.HTML)
     else:
         # If user has removed the link, reset their warnings
         if user_id in warnings:
