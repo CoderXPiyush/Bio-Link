@@ -39,6 +39,21 @@ async def has_permissions(client, chat_id, user_id, permissions):
             return False
     return True
 
+@app.on_message(filters.command("start") & filters.private)
+async def start(client, message):
+    user_name = message.from_user.first_name
+    start_message = (
+        f"Hello {user_name}!\n\n"
+        "Welcome to the Bio Link Monitor Bot! I help keep Telegram groups clean by monitoring user bios for unauthorized links. "
+        "Group admins can configure me to warn, mute, or ban users who have links in their bios.\n\n"
+        "Use the buttons below to join our support group or add me to your group!"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Support Group", url="https://t.me/itsSmartDev")],
+        [InlineKeyboardButton("Add to Group", url=f"https://t.me/{(await client.get_me()).username}?startgroup=true")]
+    ])
+    await message.reply_text(start_message, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
+
 @app.on_message(filters.group & filters.command("config"))
 async def configure(client, message):
     chat_id = message.chat.id
