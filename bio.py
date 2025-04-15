@@ -39,45 +39,28 @@ async def has_permissions(client, chat_id, user_id, permissions):
     return True
 
 async def is_group_link(client, chat_id, url):
-    """Check if the URL is a link to the current group (public or private)."""
+    """Check if the URL points to the same group by comparing chat IDs."""
     try:
         if 't.me' not in url.lower():
             return False
 
-        # Get chat info for the current group
-        chat = await client.get_chat(chat_id)
-        public_link = getattr(chat, 'username', None)
-        invite_link = getattr(chat, 'invite_link', None)
-
-        # Normalize URL for comparison
+        # Normalize URL
         url = url.lower().rstrip('/')
         if url.startswith('http://'):
             url = url.replace('http://', 'https://')
 
-        # Check public link (e.g., t.me/username)
-        if public_link:
-            public_link = f"https://t.me/{public_link.lower().lstrip('@')}"
-            if url == public_link or url.startswith(public_link + '/'):
-                return True
-
-        # Check private invite link (e.g., t.me/+abcdef or t.me/joinchat/...)
-        if invite_link:
-            invite_link = invite_link.lower().rstrip('/')
-            if url == invite_link or url.startswith(invite_link + '/'):
-                return True
-
-        # Handle private group links without an invite_link (e.g., t.me/+abcdef)
-        if url.startswith('https://t.me/+') or url.startswith('https://t.me/joinchat/'):
-            try:
-                # Attempt to resolve the invite link to get the chat ID
-                chat_info = await client.get_chat(url)
-                if chat_info.id == chat_id:
-                    return True
-            except errors.BadRequest:
-                # Ignore errors if the bot can't access the link (e.g., not a member)
-                pass
-
-        return False
+        # Try to resolve the URL to a chat
+        try:
+            chat_info = await client.get_chat(url)
+            resolved_chat_id = chat_info.id
+            return resolved_chat_id == chat_id
+        except errors.BadRequest as e:
+            # Handle cases where the bot can't access the chat (e.g., not a member)
+            print(f"Error resolving chat for URL {url}: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error resolving chat for URL {url}: {e}")
+            return False
     except Exception as e:
         print(f"Error checking group link: {e}")
         return False
