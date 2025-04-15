@@ -1,9 +1,3 @@
-"""
-Author: Bisnu Ray
-User: https://t.me/SmartBisnuBio
-Channel: https://t.me/itsSmartDev
-"""
-
 from pyrogram import Client, filters, enums, errors
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 import re
@@ -11,8 +5,7 @@ import re
 # User Client setup
 api_id = "22321019"     # Replace this api_id
 api_hash = "8746334865761149185b4263cc626e359"       # Replace this api_hash
-bot_token = "7803060450:AAGh_qcYUrYupdfBmNGSIrO842z59MxC9u4"       # Replace this with bot_token
-
+bot_token = "7803060450:AAGh_qcYUrYupdfBmNGSIrO842z59MxC9u4"
 app = Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
 url_pattern = re.compile(
@@ -68,7 +61,8 @@ async def configure(client, message):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Warn", callback_data="warn")],
         [InlineKeyboardButton("Mute ✅" if current_punishment == "mute" else "Mute", callback_data="mute"), 
-         InlineKeyboardButton("Ban ✅" if current_punishment == "ban" else "Ban", callback_data="ban")],
+         InlineKeyboardButton("Ban ✅" if current_punishment == "ban" else "Ban", callback_data="ban"),
+         InlineKeyboardButton("Delete ✅" if current_punishment == "delete" else "Delete", callback_data="delete")],
         [InlineKeyboardButton("Close", callback_data="close")]
     ])
     await message.reply_text("<b>Select punishment for users who have links in their bio:</b>", reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
@@ -93,7 +87,8 @@ async def callback_handler(client, callback_query):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Warn", callback_data="warn")],
             [InlineKeyboardButton("Mute ✅" if current_punishment == "mute" else "Mute", callback_data="mute"), 
-             InlineKeyboardButton("Ban ✅" if current_punishment == "ban" else "Ban", callback_data="ban")],
+             InlineKeyboardButton("Ban ✅" if current_punishment == "ban" else "Ban", callback_data="ban"),
+             InlineKeyboardButton("Delete ✅" if current_punishment == "delete" else "Delete", callback_data="delete")],
             [InlineKeyboardButton("Close", callback_data="close")]
         ])
         await callback_query.message.edit_text("<b>Select punishment for users who have links in their bio:</b>", reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
@@ -111,12 +106,13 @@ async def callback_handler(client, callback_query):
         await callback_query.message.edit_text("<b>Select the number of warnings before punishment:</b>", reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
         return
 
-    if data in ["mute", "ban"]:
+    if data in ["mute", "ban", "delete"]:
         punishment[chat_id] = ("warn", punishment.get(chat_id, default_punishment_set)[1], data)
         selected_keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Warn", callback_data="warn")],
             [InlineKeyboardButton("Mute ✅" if data == "mute" else "Mute", callback_data="mute"), 
-             InlineKeyboardButton("Ban ✅" if data == "ban" else "Ban", callback_data="ban")],
+             InlineKeyboardButton("Ban ✅" if data == "ban" else "Ban", callback_data="ban"),
+             InlineKeyboardButton("Delete ✅" if data == "delete" else "Delete", callback_data="delete")],
             [InlineKeyboardButton("Close", callback_data="close")]
         ])
         await callback_query.message.edit_text("<b>Punishment selected:</b>", reply_markup=selected_keyboard, parse_mode=enums.ParseMode.HTML)
@@ -153,6 +149,16 @@ async def callback_handler(client, callback_query):
         except errors.ChatAdminRequired:
             await callback_query.message.edit("I don't have permission to unban users.")
         await callback_query.answer()
+    elif data.startswith("undelete_"):
+        target_user_id = int(data.split("_")[1])
+        target_user = await client.get_chat(target_user_id)
+        target_user_name = f"{target_user.first_name} {target_user.last_name}" if target_user.last_name else target_user.first_name
+        try:
+            await client.restrict_chat_member(chat_id, target_user_id, ChatPermissions(can_send_messages=True))
+            await callback_query.message.edit(f"{target_user_name} [<code>{target_user_id}</code>] has been allowed to send messages again", parse_mode=enums.ParseMode.HTML)
+        except errors.ChatAdminRequired:
+            await callback_query.message.edit("I don't have permission to restore message sending rights.")
+        await callback_query.answer()
 
 @app.on_message(filters.group)
 async def check_bio(client, message):
@@ -179,7 +185,7 @@ async def check_bio(client, message):
             if user_id not in warnings:
                 warnings[user_id] = 0
             warnings[user_id] += 1
-            sent_msg = await message.reply_text(f"{user_name} please remove any links from your bio. warned {warnings[user_id]}/{action[1]}", parse_mode=enums.ParseMode.HTML)
+            sent_msg = await message.reply_text(f"{user_name} please remove any links from your bio. Warned {warnings[user_id]}/{action[1]}", parse_mode=enums.ParseMode.HTML)
             if warnings[user_id] >= action[1]:
                 try:
                     if action[2] == "mute":
@@ -190,22 +196,33 @@ async def check_bio(client, message):
                         await client.ban_chat_member(chat_id, user_id)
                         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unban ✅", callback_data=f"unban_{user_id}")]])
                         await sent_msg.edit(f"{user_name} has been 🔨 banned for [ Link In Bio ].", reply_markup=keyboard)
+                    elif action[2] == "delete":
+                        await client.restrict_chat_member(chat_id, user_id, ChatPermissions())
+                        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Restore Messages ✅", callback_data=f"undelete_{user_id}")]])
+                        await sent_msg.edit(f"{user_name}'s messages will be deleted and they cannot send new messages until they remove the link from their bio.", reply_markup=keyboard)
                 except errors.ChatAdminRequired:
                     await sent_msg.edit(f"I don't have permission to {action[2]} users.")
-        elif action[0] == "mute":
+        elif action[2] == "mute":
             try:
                 await client.restrict_chat_member(chat_id, user_id, ChatPermissions())
                 keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unmute", callback_data=f"unmute_{user_id}")]])
                 await message.reply_text(f"{user_name} has been 🔇 muted for [ Link In Bio ].", reply_markup=keyboard)
             except errors.ChatAdminRequired:
                 await message.reply_text("I don't have permission to mute users.")
-        elif action[0] == "ban":
+        elif action[2] == "ban":
             try:
                 await client.ban_chat_member(chat_id, user_id)
                 keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unban", callback_data=f"unban_{user_id}")]])
                 await message.reply_text(f"{user_name} has been 🔨 banned for [ Link In Bio ].", reply_markup=keyboard)
             except errors.ChatAdminRequired:
                 await message.reply_text("I don't have permission to ban users.")
+        elif action[2] == "delete":
+            try:
+                await client.restrict_chat_member(chat_id, user_id, ChatPermissions())
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Restore Messages", callback_data=f"undelete_{user_id}")]])
+                await message.reply_text(f"{user_name}'s messages will be deleted and they cannot send new messages until they remove the link from their bio.", reply_markup=keyboard)
+            except errors.ChatAdminRequired:
+                await message.reply_text("I don't have permission to restrict message sending.")
     else:
         # If user has removed the link, reset their warnings
         if user_id in warnings:
