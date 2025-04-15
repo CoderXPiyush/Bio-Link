@@ -1,5 +1,5 @@
 from pyrogram import client, filters, enums, errors
-from pyrogram.types import inlinekeyboardmarkup, inlinekeyboardbutton, chatpermissions
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 import re
 import logging
 
