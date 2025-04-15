@@ -1,3 +1,9 @@
+"""
+Author: Bisnu Ray
+User: https://t.me/SmartBisnuBio
+Channel: https://t.me/itsSmartDev
+"""
+
 from pyrogram import Client, filters, enums, errors
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 import re
@@ -31,6 +37,37 @@ async def has_permissions(client, chat_id, user_id, permissions):
         if not getattr(chat_member.privileges, perm, False):
             return False
     return True
+
+async def is_group_link(client, chat_id, url):
+    """Check if the URL is a link to the current group (public or private)."""
+    try:
+        # Extract the Telegram-specific part of the URL (e.g., t.me/username or t.me/joinchat/...)
+        if 't.me' not in url:
+            return False
+        
+        # Get chat info for the current group
+        chat = await client.get_chat(chat_id)
+        public_link = getattr(chat, 'username', None)
+        invite_link = getattr(chat, 'invite_link', None)
+
+        # Normalize URLs for comparison
+        url = url.lower().rstrip('/')
+        
+        # Check public link (e.g., t.me/username)
+        if public_link:
+            public_link = f"https://t.me/{public_link.lower().lstrip('@')}"
+            if url == public_link or url.startswith(public_link + '/'):
+                return True
+
+        # Check private invite link (e.g., t.me/+abcdef or t.me/joinchat/...)
+        if invite_link:
+            invite_link = invite_link.lower().rstrip('/')
+            if url == invite_link or url.startswith(invite_link + '/'):
+                return True
+
+        return False
+    except Exception:
+        return False
 
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
@@ -174,6 +211,21 @@ async def check_bio(client, message):
         user_name = f"{user_full.first_name} {user_full.last_name} [<code>{user_id}</code>]" if user_full.last_name else f"{user_full.first_name} [<code>{user_id}</code>]"
 
     if bio and re.search(url_pattern, bio):
+        # Check if any URL in the bio is a link to the current group
+        urls = re.findall(url_pattern, bio)
+        is_group_url = False
+        for url_tuple in urls:
+            url = ''.join(url_tuple)  # Combine the matched groups into a full URL
+            if await is_group_link(client, chat_id, url):
+                is_group_url = True
+                break
+
+        if is_group_url:
+            # If the link is for the current group, reset warnings and skip punishment
+            if user_id in warnings:
+                del warnings[user_id]
+            return
+
         try:
             await message.delete()
         except errors.MessageDeleteForbidden:
