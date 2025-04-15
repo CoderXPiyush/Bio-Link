@@ -41,18 +41,19 @@ async def has_permissions(client, chat_id, user_id, permissions):
 async def is_group_link(client, chat_id, url):
     """Check if the URL is a link to the current group (public or private)."""
     try:
-        # Extract the Telegram-specific part of the URL (e.g., t.me/username or t.me/joinchat/...)
-        if 't.me' not in url:
+        if 't.me' not in url.lower():
             return False
-        
+
         # Get chat info for the current group
         chat = await client.get_chat(chat_id)
         public_link = getattr(chat, 'username', None)
         invite_link = getattr(chat, 'invite_link', None)
 
-        # Normalize URLs for comparison
+        # Normalize URL for comparison
         url = url.lower().rstrip('/')
-        
+        if url.startswith('http://'):
+            url = url.replace('http://', 'https://')
+
         # Check public link (e.g., t.me/username)
         if public_link:
             public_link = f"https://t.me/{public_link.lower().lstrip('@')}"
@@ -65,8 +66,20 @@ async def is_group_link(client, chat_id, url):
             if url == invite_link or url.startswith(invite_link + '/'):
                 return True
 
+        # Handle private group links without an invite_link (e.g., t.me/+abcdef)
+        if url.startswith('https://t.me/+') or url.startswith('https://t.me/joinchat/'):
+            try:
+                # Attempt to resolve the invite link to get the chat ID
+                chat_info = await client.get_chat(url)
+                if chat_info.id == chat_id:
+                    return True
+            except errors.BadRequest:
+                # Ignore errors if the bot can't access the link (e.g., not a member)
+                pass
+
         return False
-    except Exception:
+    except Exception as e:
+        print(f"Error checking group link: {e}")
         return False
 
 @app.on_message(filters.command("start") & filters.private)
@@ -211,11 +224,10 @@ async def check_bio(client, message):
         user_name = f"{user_full.first_name} {user_full.last_name} [<code>{user_id}</code>]" if user_full.last_name else f"{user_full.first_name} [<code>{user_id}</code>]"
 
     if bio and re.search(url_pattern, bio):
-        # Check if any URL in the bio is a link to the current group
-        urls = re.findall(url_pattern, bio)
+        # Extract all URLs from the bio
+        urls = [''.join(url_tuple) for url_tuple in re.findall(url_pattern, bio)]
         is_group_url = False
-        for url_tuple in urls:
-            url = ''.join(url_tuple)  # Combine the matched groups into a full URL
+        for url in urls:
             if await is_group_link(client, chat_id, url):
                 is_group_url = True
                 break
